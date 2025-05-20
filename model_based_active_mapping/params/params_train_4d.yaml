@@ -1,0 +1,33 @@
+max_num_landmarks: 7
+horizon: 50
+tau: 1.0
+
+# not used
+num_landmarks: 5
+env_width: 10
+env_height: 10
+
+target_params:
+  q:
+    _min: 1
+    _max: 1
+  init_pos_cov:
+    _min: 500
+    _max: 5000
+  init_vel_cov:
+    _min: 0.1
+    _max: 0.5
+  landmark_motion_scale: 1
+
+FoV:
+  radius: 50
+  psi: 1.0471975511965976
+  kappa: 0.4
+  V:
+    _1: 0.04
+    _2: 0.04
+
+lr: 0.0003
+max_epoch: 1000
+batch_size: 60
+num_test_trials: 20

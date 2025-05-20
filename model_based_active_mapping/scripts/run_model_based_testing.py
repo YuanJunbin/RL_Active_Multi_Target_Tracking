@@ -65,7 +65,7 @@ def run_model_based_testing(params_filename):
         agent = ModelBasedAgent(num_landmarks=num_landmarks, init_info=init_info, A=A, B=B, W=W,
                                 radius=radius, psi=psi, kappa=kappa, V=V, lr=lr)
 
-    agent.load_policy_state_dict('./checkpoints/best_model.pth')
+    agent.load_policy_state_dict('./checkpoints/best_model_seed0.pth')
 
     agent.eval_policy()
     for i in range(num_test_trials):

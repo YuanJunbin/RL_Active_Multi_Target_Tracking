@@ -205,6 +205,8 @@ class ModelBasedAgentAtt:
         #                               min=-tensor([self._num_landmarks, self._num_landmarks]),
         #                               max=tensor([self._num_landmarks, self._num_landmarks]))
         self._mu_predict = landmark_motion(self._mu_update, v, self._A, self._B)
+        # print(f"info mat is {self._info}")
+        # print(f"W is {self._W}")
         self._info = (self._info**(-1) + self._W)**(-1)
 
         q_predict = torch.vstack(((self._mu_predict[:, 0] - x[0]) * torch.cos(x[2]) + (self._mu_predict[:, 1] - x[1]) * torch.sin(x[2]),
@@ -248,6 +250,136 @@ class ModelBasedAgentAtt:
         M = (1 - phi(SDF_update, self._kappa))[:, None] * self._inv_V.repeat(self._num_landmarks, 1)
         # Assuming A = I:
         self._info = self._info + M
+
+    def set_policy_grad_to_zero(self):
+        self._policy_optimizer.zero_grad()
+
+    def update_policy_grad(self, train=True):
+        reward = - torch.sum(torch.log(self._info))
+        if train == True:
+            reward.backward()
+        return -reward.item()
+
+    def policy_step(self, debug=False):
+        if debug:
+            param_list = []
+            for i, p in enumerate(self._policy.parameters()):
+                param_list.append(p.data.detach().clone())
+
+        self._policy_optimizer.step()
+
+        if debug:
+            total_param_rssd = 0
+            grad_power = 0
+            for i, p in enumerate(self._policy.parameters()):
+                if p.grad is not None:
+                    grad_power += (p.grad ** 2).sum()
+                else:
+                    grad_power += 0
+                total_param_rssd += ((param_list[i] - p.data) ** 2).sum().sqrt()
+
+            print("Gradient power after backward: {}".format(grad_power))
+            print("RSSD of weights after applying the gradient: {}".format(total_param_rssd))
+
+    def get_policy_state_dict(self):
+        return self._policy.state_dict()
+
+    def load_policy_state_dict(self, load_model):
+        self._policy.load_state_dict(torch.load(load_model))
+
+class TargetBelief4D:
+    def __init__(self, tau, target_id):
+        self.dt = tau
+        self.F = tensor([[1, 0, self.dt, 0],
+                         [0, 1, 0, self.dt],
+                         [0, 0, 1, 0],
+                         [0, 0, 0, 1]])
+        self.target_id = target_id
+
+        self.x_mean = None
+        self.x_cov = None
+        self.Q = None
+
+    def reset_belief(self, mean_state, init_cov_mat, prop_cov_mat):
+        self.x_mean = mean_state
+        self.x_cov = init_cov_mat
+        self.Q = prop_cov_mat
+    
+    def apply_observation(self, mean_obs, cov_obs):
+        self.x_mean = mean_obs
+        self.x_cov = cov_obs
+    
+    def propagate_belief(self):
+        self.x_mean = self.F @ self.x_mean
+        self.x_cov = self.F @ self.x_cov @ self.F.transpose() + self.Q
+
+class ModelBasedAgentAtt4D:
+    def __init__(self, max_num_landmarks, radius, obs_cov, lr):
+        self._max_num_landmarks = max_num_landmarks
+        self._radius = radius
+
+        self._info = None
+
+        input_dim = max_num_landmarks * 5 + 3
+        self._target_beliefs = None
+        self._obs_cov = obs_cov
+        self._obs_dist = torch.distributions.MultivariateNormal(torch.zeros(4), covariance_matrix=self._obs_cov)
+
+        self._policy = PolicyNetAtt(input_dim=input_dim)
+        self._policy_optimizer = Adam(self._policy.parameters(), lr=lr)
+
+    def reset_agent_info(self, target_list):
+        self._target_beliefs = []
+        for target in target_list:
+            belief = TargetBelief4D(target.dt, target.target_id)
+            belief.reset_belief(target.init_mean, target.cov_init, target.Q)
+            self._target_beliefs.append(belief)
+
+        self._info = torch.vstack([torch.diag(tracker.x_cov[:2, :2]) for tracker in self._target_beliefs])**(-1)
+
+    def reset_estimate_mu(self, mu_real):
+        self._num_landmarks = mu_real.size()[0]
+        self._padding = torch.zeros(2 * (self._max_num_landmarks - self._num_landmarks))
+        self._mask = torch.tensor([True] * self._num_landmarks + [False] * (self._max_num_landmarks - self._num_landmarks))
+
+    def eval_policy(self):
+        self._policy.eval()
+
+    def train_policy(self):
+        self._policy.train()
+
+    def plan(self, x):
+        for belief in self._target_beliefs:
+            belief.propagate_belief()
+
+        self._mu_predict = torch.vstack([tracker.x_mean for tracker in self._target_beliefs])
+        self._info = torch.vstack([torch.diag(tracker.x_cov[:2, :2]) for tracker in self._target_beliefs])**(-1)
+
+        # print(f"info mat is {self._info}")
+
+        q_predict = torch.vstack(((self._mu_predict[:, 0] - x[0]) * torch.cos(x[2]) + (self._mu_predict[:, 1] - x[1]) * torch.sin(x[2]),
+                          (x[0] - self._mu_predict[:, 0]) * torch.sin(x[2]) + (self._mu_predict[:, 1] - x[1]) * torch.cos(x[2]))).T
+
+        # net_input = torch.hstack((x, self._info.flatten(), next_mu.flatten()))
+
+        agent_pos_local = torch.zeros(3)
+        net_input = torch.hstack((agent_pos_local, self._info.flatten(),
+                                  self._padding, q_predict.flatten(), self._padding, self._mask))
+        # net_input = q.flatten()
+        action = self._policy.forward(net_input)
+        return action
+
+    def update_info_mu(self, mu_real, x):
+        q_real = torch.vstack(((mu_real[:, 0] - x[0]) * torch.cos(x[2]) + (mu_real[:, 1] - x[1]) * torch.sin(x[2]),
+                          (x[0] - mu_real[:, 0]) * torch.sin(x[2]) + (mu_real[:, 1] - x[1]) * torch.cos(x[2]))).T
+        
+        for i, belief in enumerate(self._target_beliefs):
+            if torch.sum(q_real[i]**2).item() < self._radius**2:
+                obs_mean = mu_real[i] + self._obs_dist.sample()
+                belief.apply_observation(obs_mean, self._obs_cov)
+
+        self._mu_update = torch.vstack([tracker.x_mean for tracker in self._target_beliefs])
+        self._info = torch.vstack([torch.diag(tracker.x_cov[:2, :2]) for tracker in self._target_beliefs])**(-1)
 
     def set_policy_grad_to_zero(self):
         self._policy_optimizer.zero_grad()

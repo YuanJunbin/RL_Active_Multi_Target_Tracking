@@ -8,8 +8,8 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 from torch import tensor
-from envs.simple_env import SimpleEnv, SimpleEnvAtt
-from agents.model_based_agent import ModelBasedAgent, ModelBasedAgentAtt
+from envs.simple_env import SimpleEnv, SimpleEnvAtt, SimpleEnvAtt4D
+from agents.model_based_agent import ModelBasedAgent, ModelBasedAgentAtt, ModelBasedAgentAtt4D
 from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(description='model-based mapping')
@@ -28,49 +28,32 @@ def run_model_based_training(params_filename):
     max_num_landmarks = params['max_num_landmarks']
     num_landmarks = params['num_landmarks']
     horizon = params['horizon']
-    env_width = params['env_width']
-    env_height = params['env_height']
     tau = params['tau']
 
-    A = torch.zeros((2, 2))
-    A[0, 0] = params['motion']['A']['_1']
-    A[1, 1] = params['motion']['A']['_2']
+    q_min = params['q']['min']
+    q_max = params['q']['max']
 
-    B = torch.zeros((2, 2))
-    B[0, 0] = params['motion']['B']['_1']
-    B[1, 1] = params['motion']['B']['_2']
+    init_pos_cov_min = params['init_pos_cov']['min']
+    init_pos_cov_max = params['init_pos_cov']['max']
 
-    W = torch.zeros(2)
-    W[0] = params['motion']['W']['_1']
-    W[1] = params['motion']['W']['_2']
-
-    landmark_motion_scale = params['motion']['landmark_motion_scale']
-
-    init_info = params['init_info']
+    init_vel_cov_min = params['init_pos_cov']['min']
+    init_vel_cov_max = params['init_pos_cov']['max']
 
     radius = params['FoV']['radius']
-    psi = tensor([params['FoV']['psi']])
-    kappa = params['FoV']['kappa']
-
-    V = torch.zeros(2)
-    V[0] = params['FoV']['V']['_1']
-    V[1] = params['FoV']['V']['_2']
-
+    
     lr = params['lr']
     max_epoch = params['max_epoch']
     batch_size = params['batch_size']
     num_test_trials = params['num_test_trials']
 
-    if args.network_type == 1:
-        env = SimpleEnvAtt(max_num_landmarks=max_num_landmarks, horizon=horizon, tau=tau,
-                           A=A, B=B, V=V, W=W, landmark_motion_scale=landmark_motion_scale, psi=psi, radius=radius)
-        agent = ModelBasedAgentAtt(max_num_landmarks=max_num_landmarks, init_info=init_info, A=A, B=B, W=W,
-                            radius=radius, psi=psi, kappa=kappa, V=V, lr=lr)
-    else:
-        env = SimpleEnv(num_landmarks=num_landmarks, horizon=horizon, width=env_width, height=env_height, tau=tau,
-                        A=A, B=B, V=V, W=W, landmark_motion_scale=landmark_motion_scale, psi=psi, radius=radius)
-        agent = ModelBasedAgent(num_landmarks=num_landmarks, init_info=init_info, A=A, B=B, W=W,
-                            radius=radius, psi=psi, kappa=kappa, V=V, lr=lr)
+    if args.network_type == 2:
+        env = SimpleEnvAtt4D(max_num_landmarks=max_num_landmarks, horizon=horizon, tau=tau,
+                             q_min=q_min, q_max=q_max, 
+                             init_pos_cov_min=init_pos_cov_min, init_pos_cov_max=init_pos_cov_max,
+                             init_vel_cov_min=init_vel_cov_min, init_vel_cov_max=init_vel_cov_max,
+                             radius=radius)
+        agent = ModelBasedAgentAtt4D(max_num_landmarks=max_num_landmarks, radius=radius, lr=lr)
+        
     writer = SummaryWriter('./tensorboard/')
 
     agent.train_policy()
@@ -81,15 +64,15 @@ def run_model_based_training(params_filename):
         agent.set_policy_grad_to_zero()
 
         for j in range(batch_size):
-            mu_real, v, x, done = env.reset()
+            mu_real, target_list, x, done = env.reset()
             num_landmarks = mu_real.size()[0]
-            agent.reset_estimate_mu(mu_real)
-            agent.reset_agent_info()
+            agent.reset_estimate_mu(mu_real, target_list)
+            agent.reset_agent_info(target_list)
             step = 0
             while not done:
-                action = agent.plan(v, x)
+                action = agent.plan(x)
                 action_list[i * batch_size + j, step, :] = action.detach().numpy()
-                mu_real, v, x, done = env.step(action)
+                mu_real, x, done = env.step(action)
                 agent.update_info_mu(mu_real, x)
                 step += 1
 

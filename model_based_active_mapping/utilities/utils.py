@@ -1,5 +1,4 @@
 import torch
-
 from torch import tensor
 
 
@@ -12,6 +11,26 @@ def SE2_kinematics(x: tensor, action: tensor, tau: float) -> tensor:
     ret_x[2] = x[2] + 2 * wt_2
     return ret_x
 
+def wrap2pi(theta):
+    """
+    Wrap an angle (or array of angles) to the range [-pi, pi].
+
+    Parameters:
+        theta (float or np.ndarray): angle(s) in radians
+
+    Returns:
+        float or np.ndarray: wrapped angle(s)
+    """
+    return (theta + torch.pi) % (2 * torch.pi) - torch.pi
+
+def Simple_kinematics(x: tensor, action: tensor, tau: float) -> tensor:
+    new_theta = wrap2pi(x[2] + action[1])
+
+    ret_x = torch.empty(3)
+    ret_x[0] = x[0] + action[0] * tau * torch.cos(new_theta)
+    ret_x[1] = x[1] + action[0] * tau * torch.sin(new_theta)
+    ret_x[2] = new_theta
+    return ret_x
 
 def landmark_motion(mu: tensor, v: tensor, A: tensor, B: tensor) -> tensor:
     return mu @ A.T + v @ B.T
@@ -85,6 +104,7 @@ def l_function(x, psi, r, p_x):
     l_2_low[inds_4] = (x[inds_4] - r) / torch.tan(psi) - r * torch.tan(psi)
 
     return l_1_low, l_1_up, l_2_low, l_2_up
+
 
 
 def get_transformation(x: tensor) -> tensor:
