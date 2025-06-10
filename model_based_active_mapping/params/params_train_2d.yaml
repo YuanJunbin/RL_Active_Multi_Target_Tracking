@@ -1,0 +1,32 @@
+max_num_landmarks: 6
+horizon: 120
+env_width: 2000
+env_height: 2000
+tau: 0.5
+
+motion:
+  A:
+    _1: 1
+    _2: 1
+  B:
+    _1: 1
+    _2: 1
+  W:
+    _1: 20
+    _2: 20
+
+  landmark_motion_scale: 3
+
+init_info: 0.002
+
+FoV:
+  radius: 50
+  kappa: 0.4
+  V:
+    _1: 100
+    _2: 100
+
+lr: 0.0003
+max_epoch: 1000
+batch_size: 60
+num_test_trials: 20

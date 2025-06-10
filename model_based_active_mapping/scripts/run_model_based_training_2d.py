@@ -8,8 +8,8 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 from torch import tensor
-from envs.simple_env import SimpleEnv, SimpleEnvAtt
-from agents.model_based_agent import ModelBasedAgent, ModelBasedAgentAtt
+from envs.simple_env import SimpleEnvAtt2D
+from agents.model_based_agent import ModelBasedAgentAtt2D
 from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(description='model-based mapping')
@@ -26,7 +26,6 @@ def run_model_based_training(params_filename):
         params = yaml.load(f, Loader=yaml.FullLoader)
 
     max_num_landmarks = params['max_num_landmarks']
-    num_landmarks = params['num_landmarks']
     horizon = params['horizon']
     env_width = params['env_width']
     env_height = params['env_height']
@@ -49,7 +48,6 @@ def run_model_based_training(params_filename):
     init_info = params['init_info']
 
     radius = params['FoV']['radius']
-    psi = tensor([params['FoV']['psi']])
     kappa = params['FoV']['kappa']
 
     V = torch.zeros(2)
@@ -61,22 +59,17 @@ def run_model_based_training(params_filename):
     batch_size = params['batch_size']
     num_test_trials = params['num_test_trials']
 
-    if args.network_type == 1:
-        env = SimpleEnvAtt(max_num_landmarks=max_num_landmarks, horizon=horizon, tau=tau,
-                           A=A, B=B, V=V, W=W, landmark_motion_scale=landmark_motion_scale, psi=psi, radius=radius)
-        agent = ModelBasedAgentAtt(max_num_landmarks=max_num_landmarks, init_info=init_info, A=A, B=B, W=W,
-                            radius=radius, psi=psi, kappa=kappa, V=V, lr=lr)
-    else:
-        env = SimpleEnv(num_landmarks=num_landmarks, horizon=horizon, width=env_width, height=env_height, tau=tau,
-                        A=A, B=B, V=V, W=W, landmark_motion_scale=landmark_motion_scale, psi=psi, radius=radius)
-        agent = ModelBasedAgent(num_landmarks=num_landmarks, init_info=init_info, A=A, B=B, W=W,
-                            radius=radius, psi=psi, kappa=kappa, V=V, lr=lr)
+    env = SimpleEnvAtt2D(max_num_landmarks=max_num_landmarks, horizon=horizon, tau=tau, init_width = env_width, init_height = env_height,
+                        A=A, B=B, V=V, W=W, landmark_motion_scale=landmark_motion_scale, radius=radius)
+    agent = ModelBasedAgentAtt2D(max_num_landmarks=max_num_landmarks, init_info=init_info, A=A, B=B, W=W,
+                        radius=radius, kappa=kappa, V=V, lr=lr)
+
     writer = SummaryWriter('./tensorboard/')
 
     agent.train_policy()
     reward_list = np.empty((max_epoch, batch_size))
     action_list = np.empty((max_epoch * batch_size, horizon, 2))
-    best_reward = 1.
+    best_reward = -np.infty
     for i in range(max_epoch):
         agent.set_policy_grad_to_zero()
 
@@ -109,7 +102,7 @@ def run_model_based_training(params_filename):
             best_reward = mean_reward
             print("New best model!\n")
 
-    torch.save(agent.get_policy_state_dict(), './checkpoints/model_info_5_moving_landmarks_2.pth')
+    torch.save(agent.get_policy_state_dict(), './checkpoints/test_train_2d.pth')
 
     plt.figure()
     plt.plot(np.mean(reward_list, axis=1), 'b-', label='Average')
@@ -134,21 +127,21 @@ def run_model_based_training(params_filename):
     plt.xlabel("Epoch")
     plt.show()
 
-    agent.eval_policy()
-    for i in range(num_test_trials):
-        mu, v, x, done = env.reset()
-        agent.reset_agent_info()
-        agent.reset_estimate_mu()
-        env.render()
-        while not done:
-            action = agent.plan(v, x)
-            mu_real, v, x, done = env.step(action)
-            agent.update_info_mu(mu_real, x)
-            env.render()
+    # agent.eval_policy()
+    # for i in range(num_test_trials):
+    #     mu, v, x, done = env.reset()
+    #     agent.reset_agent_info()
+    #     agent.reset_estimate_mu()
+    #     env.render()
+    #     while not done:
+    #         action = agent.plan(v, x)
+    #         mu_real, v, x, done = env.step(action)
+    #         agent.update_info_mu(mu_real, x)
+    #         env.render()
 
 
 if __name__ == '__main__':
     # torch.manual_seed(0)
     # torch.autograd.set_detect_anomaly(True)
     run_model_based_training(params_filename=os.path.join(os.path.abspath(os.path.join("", os.pardir)),
-                                                          "params/params_compare_debug.yaml"))
+                                                          "params/params_train_2d.yaml"))

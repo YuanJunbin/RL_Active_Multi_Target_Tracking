@@ -26,33 +26,45 @@ def run_model_based_training(params_filename):
         params = yaml.load(f, Loader=yaml.FullLoader)
 
     max_num_landmarks = params['max_num_landmarks']
-    num_landmarks = params['num_landmarks']
     horizon = params['horizon']
     tau = params['tau']
 
-    q_min = params['q']['min']
-    q_max = params['q']['max']
+    init_pos_min = params['target_params']['init_pos']['min']
+    init_pos_max = params['target_params']['init_pos']['max']
+    init_pos_range = tensor([init_pos_min, init_pos_max])
 
-    init_pos_cov_min = params['init_pos_cov']['min']
-    init_pos_cov_max = params['init_pos_cov']['max']
+    init_vel_min = params['target_params']['init_vel']['min']
+    init_vel_max = params['target_params']['init_vel']['max']
+    init_vel_range = tensor([init_vel_min, init_vel_max])
 
-    init_vel_cov_min = params['init_pos_cov']['min']
-    init_vel_cov_max = params['init_pos_cov']['max']
+    q_min = params['target_params']['q']['min']
+    q_max = params['target_params']['q']['max']
+
+    init_pos_cov_min = params['target_params']['init_pos_cov']['min']
+    init_pos_cov_max = params['target_params']['init_pos_cov']['max']
+
+    init_vel_cov_min = params['target_params']['init_pos_cov']['min']
+    init_vel_cov_max = params['target_params']['init_pos_cov']['max']
+
+    obs_pos_cov = params['FoV']['obs_pos_cov']
+
+    obs_cov = tensor([[obs_pos_cov, 0],
+                      [0, obs_pos_cov]], dtype=torch.float32)
 
     radius = params['FoV']['radius']
     
     lr = params['lr']
+    kappa = params['kappa']
     max_epoch = params['max_epoch']
     batch_size = params['batch_size']
     num_test_trials = params['num_test_trials']
 
-    if args.network_type == 2:
-        env = SimpleEnvAtt4D(max_num_landmarks=max_num_landmarks, horizon=horizon, tau=tau,
-                             q_min=q_min, q_max=q_max, 
-                             init_pos_cov_min=init_pos_cov_min, init_pos_cov_max=init_pos_cov_max,
-                             init_vel_cov_min=init_vel_cov_min, init_vel_cov_max=init_vel_cov_max,
-                             radius=radius)
-        agent = ModelBasedAgentAtt4D(max_num_landmarks=max_num_landmarks, radius=radius, lr=lr)
+    env = SimpleEnvAtt4D(max_num_landmarks=max_num_landmarks, horizon=horizon, tau=tau,
+                            init_pos_range=init_pos_range, init_vel_range=init_vel_range, q_min=q_min, q_max=q_max, 
+                            init_pos_cov_min=init_pos_cov_min, init_pos_cov_max=init_pos_cov_max,
+                            init_vel_cov_min=init_vel_cov_min, init_vel_cov_max=init_vel_cov_max,
+                            radius=radius)
+    agent = ModelBasedAgentAtt4D(max_num_landmarks=max_num_landmarks, radius=radius, obs_cov=obs_cov, lr=lr, kappa=kappa, dt=tau)
         
     writer = SummaryWriter('./tensorboard/')
 
@@ -66,8 +78,8 @@ def run_model_based_training(params_filename):
         for j in range(batch_size):
             mu_real, target_list, x, done = env.reset()
             num_landmarks = mu_real.size()[0]
-            agent.reset_estimate_mu(mu_real, target_list)
-            agent.reset_agent_info(target_list)
+            agent.reset_estimate_mu(mu_real)
+            agent.reset_agent_info(target_list, mu_real)
             step = 0
             while not done:
                 action = agent.plan(x)
@@ -127,11 +139,11 @@ def run_model_based_training(params_filename):
             action = agent.plan(v, x)
             mu_real, v, x, done = env.step(action)
             agent.update_info_mu(mu_real, x)
-            env.render()
+            env.render(agent._target_beliefs)
 
 
 if __name__ == '__main__':
     # torch.manual_seed(0)
     # torch.autograd.set_detect_anomaly(True)
     run_model_based_training(params_filename=os.path.join(os.path.abspath(os.path.join("", os.pardir)),
-                                                          "params/params_compare.yaml"))
+                                                          "params/params_train_4d.yaml"))

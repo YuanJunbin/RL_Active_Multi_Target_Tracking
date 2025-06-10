@@ -55,13 +55,19 @@ class PolicyNetAtt(nn.Module):
     #     return action
 
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
+        # print("[DEBUG] agent_pos_fc1_pi weight: min=", self.agent_pos_fc1_pi.weight.min().item(), "max=", self.agent_pos_fc1_pi.weight.max().item())
+        # print("[DEBUG] agent_pos_fc1_pi bias: min=", self.agent_pos_fc1_pi.bias.min().item(), "max=", self.agent_pos_fc1_pi.bias.max().item())
         if len(observation.size()) == 1:
             observation = observation[None, :]
+
+        # print(f"[DEBUG] Obs range: min={observation.min().item():.3f}, max={observation.max().item():.3f}")
+
 
         # compute the policy
         # embeddings of agent's position
         agent_pos_embedding = self.relu(self.agent_pos_fc1_pi(observation[:, :3]))
         agent_pos_embedding = self.relu(self.agent_pos_fc2_pi(agent_pos_embedding))
+        # print(f"[DEBUG] Agent pos embedding: {agent_pos_embedding}")
 
         # embeddings of landmarkss
         info_vector = observation[:, 3: 3 + 2 * self.num_landmark]
@@ -70,6 +76,7 @@ class PolicyNetAtt(nn.Module):
                                    info_vector.reshape(observation.size()[0], self.num_landmark, 2)), 2)
         landmark_embedding = self.relu(self.landmark_fc1_pi(landmark_info))
         landmark_embedding = self.relu(self.landmark_fc2_pi(landmark_embedding))
+        # print(f"[DEBUG] Landmark emb: shape={landmark_embedding.shape}, min={landmark_embedding.min().item():.3e}, max={landmark_embedding.max().item():.3e}")
 
         # attention
         landmark_embedding_tr = torch.transpose(landmark_embedding, 1, 2)
@@ -78,8 +85,12 @@ class PolicyNetAtt(nn.Module):
         mask = observation[:, - self.num_landmark:].unsqueeze(1)
         attention = torch.matmul(agent_pos_embedding.unsqueeze(1), landmark_embedding_tr) / 4
         attention = attention.masked_fill(mask == 0, -1e10)
+        # print(f"[DEBUG] Attention raw min/max: {attention.min().item():.3e}/{attention.max().item():.3e}")
+
 
         att = self.softmax(attention)
+        # print(f"[DEBUG] Attention weights: {att.squeeze().detach().cpu().numpy()}")
+
         landmark_embedding_att = self.relu((torch.matmul(att, torch.transpose(landmark_embedding_tr, 1, 2)).squeeze(1)))
 
         info_embedding = self.relu(self.info_fc1_pi(torch.cat((agent_pos_embedding, landmark_embedding_att), 1)))
@@ -88,7 +99,10 @@ class PolicyNetAtt(nn.Module):
 
         if action.size()[0] == 1:
             action = action.flatten()
+        
+        # print(f"[DEBUG] Final action: {action.detach().cpu().numpy()}")
 
-        scaled_action = torch.hstack(((1 + action[0]) * 2.0, action[1] * torch.pi/3))
+        # scaled_action = torch.hstack(((1 + action[0]) * 2.0, action[1] * torch.pi/3))
+        scaled_action = torch.hstack(((1 + action[0]) * 15.1, action[1] * torch.pi))
 
         return scaled_action

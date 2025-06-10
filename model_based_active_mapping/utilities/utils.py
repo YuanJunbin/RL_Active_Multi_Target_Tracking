@@ -39,6 +39,23 @@ def landmark_motion_real(mu: tensor, v: tensor, A: tensor, B: tensor, W: tensor)
     # print(mu, A.T, torch.normal(mean=torch.zeros(mu.size()), std=torch.sqrt(W)), "\n\n\n")
     return mu @ A.T + v @ B.T + torch.normal(mean=torch.zeros(mu.size()), std=torch.sqrt(W))
 
+
+def circle_SDF(q: tensor, r: float) -> tensor:
+    """
+    Compute signed distance from point(s) q to a circle of radius r centered at (0, 0).
+    
+    Parameters:
+        q (Tensor): shape (N, 2), relative position of target w.r.t. drone
+        r (float): radius of the circular FoV
+
+    Returns:
+        Tensor: shape (N,), signed distance to the circle boundary
+                (negative = inside, zero = on edge, positive = outside)
+    """
+    dists = torch.linalg.norm(q, dim=1)  # shape (N,)
+    sdf = dists - r
+    return sdf
+
 def triangle_SDF(q: tensor, psi: float, r: float) -> tensor:
     x, y = q[:, 0], q[:, 1]
     p_x = r / (1 + torch.sin(psi))
